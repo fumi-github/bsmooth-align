@@ -117,6 +117,9 @@ use POSIX;
 use Storable qw(dclone);
 use Carp;
 use List::Util qw(max min);
+no strict 'refs'; # for FileCache
+use FileCache maxopen => 1000;
+our %isopen; # for FileCache
 
 my $ALIGNER = "bowtie2";        # aligner binary name
 my $aligner_exe = $ALIGNER;     # path to aligner bin
@@ -715,11 +718,12 @@ sub evidenceSink($) {
 	$tname = sanitize_filename($tname);
 	my $outfn = "$ev_out_dir/$tname.ev.tsv";
 	# Open output file for this reference, if there isn't one open already
-	if(!defined($ev_out_fhs{$outfn})) {
+	if(!defined($ev_out_fhs{$outfn}) ||
+	   !defined($isopen{$outfn})) { # Could have been closed by FileCache
 		my $outpipe = ">$outfn";
 		$outpipe = "| gzip  -c > $outfn.gz"  if $compress eq "gzip";
 		$outpipe = "| bzip2 -c > $outfn.bz2" if $compress eq "bzip2";
-		open($ev_out_fhs{$outfn}, $outpipe) ||
+		($ev_out_fhs{$outfn} = cacheout '>>', $outfn) ||
 			confess("Could not open output pipe '$outpipe' for writing");
 		my $outbinfn = "$ev_out_dir/.$tname.ev.tsv.bin";
 		open(TMP, ">$outbinfn") ||
@@ -1310,7 +1314,7 @@ for($sam_fh_wat, $sam_fh_cri, $sam_fh_un, $bam_fh_wat, $bam_fh_cri, $bam_fh_un) 
 	close($_) if defined($_);
 }
 
-for my $ofh (%ev_out_fhs) { close($ofh); }
+for my $ofh (%ev_out_fhs) { FileCache::cacheout_close($ofh); }
 rmtree([$temp_dir]) unless defined($keep_dir);
 
 # TODO: Print to a file as well as to STDERR
